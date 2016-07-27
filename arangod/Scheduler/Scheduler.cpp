@@ -49,7 +49,7 @@ using namespace arangodb::rest;
 Scheduler::Scheduler(size_t nrThreads)
     : nrThreads(nrThreads),
       threads(0),
-      stopping(0),
+      _stopping(false),
       nextLoop(0),
       _active(true) {
   // check for multi-threading scheduler
@@ -61,7 +61,8 @@ Scheduler::Scheduler(size_t nrThreads)
 
   // report status
   if (multiThreading) {
-    LOG(TRACE) << "scheduler is multi-threaded, number of threads: " << nrThreads;
+    LOG(TRACE) << "scheduler is multi-threaded, number of threads: "
+               << nrThreads;
   } else {
     LOG(TRACE) << "scheduler is single-threaded";
   }
@@ -76,15 +77,16 @@ Scheduler::~Scheduler() {}
 /// @brief starts scheduler, keeps running
 ////////////////////////////////////////////////////////////////////////////////
 
-bool Scheduler::start(ConditionVariable* cv) {
+bool Scheduler::start() {
   MUTEX_LOCKER(mutexLocker, schedulerLock);
 
   // start the schedulers threads
   for (size_t i = 0; i < nrThreads; ++i) {
-    bool ok = threads[i]->start(cv);
+    bool ok = threads[i]->start();
 
     if (!ok) {
-      LOG(FATAL) << "cannot start threads"; FATAL_ERROR_EXIT();
+      LOG(FATAL) << "cannot start threads";
+      FATAL_ERROR_EXIT();
     }
   }
 
@@ -112,9 +114,7 @@ bool Scheduler::start(ConditionVariable* cv) {
 /// @brief checks if the scheduler threads are up and running
 ////////////////////////////////////////////////////////////////////////////////
 
-bool Scheduler::isStarted() {
-  return true;
-}
+bool Scheduler::isStarted() { return true; }
 
 ////////////////////////////////////////////////////////////////////////////////
 /// @brief checks if scheduler is still running
@@ -137,7 +137,7 @@ bool Scheduler::isRunning() {
 ////////////////////////////////////////////////////////////////////////////////
 
 void Scheduler::beginShutdown() {
-  if (stopping != 0) {
+  if (_stopping) {
     return;
   }
 
@@ -150,14 +150,14 @@ void Scheduler::beginShutdown() {
   }
 
   // set the flag AFTER stopping the threads
-  stopping = 1;
+  _stopping = true;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 /// @brief checks if scheduler is shuting down
 ////////////////////////////////////////////////////////////////////////////////
 
-bool Scheduler::isShutdownInProgress() { return stopping != 0; }
+bool Scheduler::isShutdownInProgress() { return _stopping; }
 
 ////////////////////////////////////////////////////////////////////////////////
 /// @brief shuts down the scheduler
@@ -221,9 +221,10 @@ std::shared_ptr<VPackBuilder> Scheduler::getUserTask(std::string const& id) {
 ////////////////////////////////////////////////////////////////////////////////
 
 int Scheduler::unregisterUserTask(std::string const& id) {
-  if (stopping) {
+  if (_stopping) {
     return TRI_ERROR_SHUTTING_DOWN;
   }
+
   if (id.empty()) {
     return TRI_ERROR_TASK_INVALID_ID;
   }
@@ -261,9 +262,10 @@ int Scheduler::unregisterUserTask(std::string const& id) {
 ////////////////////////////////////////////////////////////////////////////////
 
 int Scheduler::unregisterUserTasks() {
-  if (stopping) {
+  if (_stopping) {
     return TRI_ERROR_SHUTTING_DOWN;
   }
+
   while (true) {
     Task* task = nullptr;
 
@@ -310,11 +312,11 @@ int Scheduler::registerTask(Task* task, ssize_t* tn) {
 ////////////////////////////////////////////////////////////////////////////////
 
 int Scheduler::unregisterTask(Task* task) {
-  if (stopping) {
+  if (_stopping) {
     return TRI_ERROR_SHUTTING_DOWN;
   }
-  SchedulerThread* thread = nullptr;
 
+  SchedulerThread* thread = nullptr;
   std::string const taskName(task->name());
 
   {
@@ -324,12 +326,14 @@ int Scheduler::unregisterTask(Task* task) {
         task);  // TODO(fc) XXX remove this! This should be in the Task
 
     if (it == task2thread.end()) {
-      LOG(WARN) << "unregisterTask called for an unknown task " << (void*)task << " (" << taskName << ")";
+      LOG(WARN) << "unregisterTask called for an unknown task " << (void*)task
+                << " (" << taskName << ")";
 
       return TRI_ERROR_TASK_NOT_FOUND;
     }
 
-    LOG(TRACE) << "unregisterTask for task " << (void*)task << " (" << taskName << ")";
+    LOG(TRACE) << "unregisterTask for task " << (void*)task << " (" << taskName
+               << ")";
 
     thread = (*it).second;
 
@@ -347,9 +351,10 @@ int Scheduler::unregisterTask(Task* task) {
 ////////////////////////////////////////////////////////////////////////////////
 
 int Scheduler::destroyTask(Task* task) {
-  if (stopping) {
+  if (_stopping) {
     return TRI_ERROR_SHUTTING_DOWN;
   }
+
   SchedulerThread* thread = nullptr;
   std::string const taskName(task->name());
 
@@ -359,12 +364,14 @@ int Scheduler::destroyTask(Task* task) {
     auto it = task2thread.find(task);
 
     if (it == task2thread.end()) {
-      LOG(WARN) << "destroyTask called for an unknown task " << (void*)task << " (" << taskName << ")";
+      LOG(WARN) << "destroyTask called for an unknown task " << (void*)task
+                << " (" << taskName << ")";
 
       return TRI_ERROR_TASK_NOT_FOUND;
     }
 
-    LOG(TRACE) << "destroyTask for task " << (void*)task << " (" << taskName << ")";
+    LOG(TRACE) << "destroyTask for task " << (void*)task << " (" << taskName
+               << ")";
 
     thread = (*it).second;
 
@@ -432,9 +439,10 @@ EventLoop Scheduler::lookupLoopById(uint64_t taskId) {
 ////////////////////////////////////////////////////////////////////////////////
 
 int Scheduler::registerTask(Task* task, ssize_t* got, ssize_t want) {
-  if (stopping) {
+  if (_stopping) {
     return TRI_ERROR_SHUTTING_DOWN;
   }
+
   TRI_ASSERT(task != nullptr);
 
   if (task->isUserDefined() && task->id().empty()) {

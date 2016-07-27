@@ -110,7 +110,7 @@ void SchedulerFeature::start() {
   buildScheduler();
   buildHangupHandler();
 
-  bool ok = _scheduler->start(nullptr);
+  bool ok = _scheduler->start();
 
   if (!ok) {
     LOG(FATAL) << "the scheduler cannot be started";

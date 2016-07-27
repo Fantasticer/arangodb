@@ -44,43 +44,16 @@ namespace rest {
 class SchedulerThread;
 class TaskData;
 
-////////////////////////////////////////////////////////////////////////////////
-/// @brief input-output scheduler
-////////////////////////////////////////////////////////////////////////////////
-
 class Scheduler : private TaskManager {
   Scheduler(Scheduler const&) = delete;
   Scheduler& operator=(Scheduler const&) = delete;
 
  public:
-  //////////////////////////////////////////////////////////////////////////////
-  /// @brief constructor
-  ///
-  /// If the number of threads is one, then the scheduler is single-threaded.
-  /// In this case the only methods, which can be called from a different thread
-  /// are beginShutdown, isShutdownInProgress, and isRunning. The method
-  /// registerTask must be called before the Scheduler is started or from
-  /// within the Scheduler thread.
-  ///
-  /// If the number of threads is greater than one, then the scheduler is
-  /// multi-threaded. In this case the method registerTask can be called from
-  /// threads other than the scheduler.
-  //////////////////////////////////////////////////////////////////////////////
-
   explicit Scheduler(size_t nrThreads);
-
   virtual ~Scheduler();
 
  public:
-  //////////////////////////////////////////////////////////////////////////////
-  /// @brief starts scheduler, keeps running
-  ///
-  /// The functions returns true, if the scheduler has been started. In this
-  /// case the condition variable is signal as soon as at least one of the
-  /// scheduler threads stops.
-  //////////////////////////////////////////////////////////////////////////////
-
-  bool start(basics::ConditionVariable*);
+  bool start();
 
   //////////////////////////////////////////////////////////////////////////////
   /// @brief checks if the scheduler threads are up and running
@@ -323,11 +296,8 @@ class Scheduler : private TaskManager {
   static void initializeSignalHandlers();
 
  private:
-  //////////////////////////////////////////////////////////////////////////////
-  /// @brief true if scheduler is shutting down
-  //////////////////////////////////////////////////////////////////////////////
-
-  volatile sig_atomic_t stopping;  // TODO(fc) XXX make this atomic
+  // true if scheduler is shutting down
+  std::atomic<bool> _stopping;
 
   //////////////////////////////////////////////////////////////////////////////
   /// @brief true if scheduler is multi-threaded
